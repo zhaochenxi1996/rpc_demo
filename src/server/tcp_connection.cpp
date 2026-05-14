@@ -8,11 +8,26 @@
 #include <iostream>
 #include <errno.h>
 #include <cstring>
+#include <arpa/inet.h>  // 添加这个头文件（用于 inet_ntop）
 
 namespace server {
 
 TcpConnection::TcpConnection(int fd, EventLoop* loop, ThreadPool* pool)
     : fd_(fd), loop_(loop), pool_(pool), closed_(false) {
+    
+    // 获取客户端地址信息
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    if (getpeername(fd_, (struct sockaddr*)&client_addr, &addr_len) == 0) {
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, ip, sizeof(ip));
+        client_ip_ = ip;
+        client_port_ = ntohs(client_addr.sin_port);
+    } else {
+        client_ip_ = "unknown";
+        client_port_ = 0;
+    }
+    
     // 设为非阻塞
     int flags = fcntl(fd_, F_GETFL, 0);
     fcntl(fd_, F_SETFL, flags | O_NONBLOCK);

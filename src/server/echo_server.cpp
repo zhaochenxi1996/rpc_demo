@@ -29,8 +29,14 @@ void signalHandler(int sig) {
 
 void onMessage(const std::vector<char>& data, TcpConnection* conn) {
     std::string msg(data.begin(), data.end());
+    
+    // 打印客户端 IP 和端口
+    std::cout << "[" << conn->getClientIP() << ":" << conn->getClientPort() << "] ";
     std::cout << "Recv: " << msg << std::endl;
-    conn->send(msg.c_str(), msg.size());
+    
+    // 可选：回复时带上客户端信息
+    std::string response = "[" + conn->getClientIP() + ":" + std::to_string(conn->getClientPort()) + "] Echo: " + msg;
+    conn->send(response.c_str(), response.size());
 }
 
 class SimpleConnectionManager {

@@ -26,6 +26,9 @@ public:
     void send(const char* data, size_t len);
     void setMessageCallback(MessageCallback cb) { message_cb_ = std::move(cb); }
 
+    std::string getClientIP() const { return client_ip_; }
+    uint16_t getClientPort() const { return client_port_; }
+
 private:
     void closeConnection();
 
@@ -33,6 +36,9 @@ private:
     EventLoop* loop_;
     ThreadPool* pool_;
     MessageCallback message_cb_;
+
+    std::string client_ip_;   // 客户端 IP
+    uint16_t client_port_;    // 客户端端口
 
     std::vector<char> read_buf_;
     bool closed_;
