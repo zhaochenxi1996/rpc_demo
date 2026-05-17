@@ -55,16 +55,21 @@ void EventLoop::stop() {
     write(eventfd_, &val, sizeof(val));
 }
 
-void EventLoop::updateConnection(TcpConnection* conn, int operation) {
+void EventLoop::updateConnection(TcpConnection* conn, int operation, int events) {
     epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
+    // 根据 events 参数设置 epoll 事件
+    ev.events = 0;
+    if (events & EVENT_READ) ev.events |= (EPOLLIN | EPOLLET);
+    if (events & EVENT_WRITE) ev.events |= (EPOLLOUT | EPOLLET);
+    
     ev.data.ptr = conn;
 
     if (operation == EPOLL_CTL_ADD || operation == EPOLL_CTL_MOD) {
-        callbacks_[conn->fd()] = [this](TcpConnection* c, uint32_t events) {
-            if (events & EPOLLIN) c->handleRead();
-            if (events & EPOLLOUT) c->handleWrite();
-            if (events & (EPOLLERR | EPOLLHUP)) c->handleClose();
+        // 回调函数保持不变
+        callbacks_[conn->fd()] = [this](TcpConnection* c, uint32_t epoll_events) {
+            if (epoll_events & EPOLLIN) c->handleRead();
+            if (epoll_events & EPOLLOUT) c->handleWrite();
+            if (epoll_events & (EPOLLERR | EPOLLHUP)) c->handleClose();
         };
     } else if (operation == EPOLL_CTL_DEL) {
         callbacks_.erase(conn->fd());

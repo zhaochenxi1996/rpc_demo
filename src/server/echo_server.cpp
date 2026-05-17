@@ -53,6 +53,28 @@ private:
     std::unordered_map<int, std::shared_ptr<TcpConnection>> conns_;
 };
 
+class ConnectionManager {
+public:
+    void add(int fd, std::shared_ptr<TcpConnection> conn) {
+        connections_[fd] = conn;
+    }
+    
+    void remove(int fd) {
+        connections_.erase(fd);
+    }
+    
+    std::shared_ptr<TcpConnection> get(int fd) {
+        auto it = connections_.find(fd);
+        if (it != connections_.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+    
+private:
+    std::unordered_map<int, std::shared_ptr<TcpConnection>> connections_;
+};
+
 int main() {
     // 注册信号处理函数
     signal(SIGINT, signalHandler);   // Ctrl+C 会触发 SIGINT
@@ -90,7 +112,7 @@ int main() {
 
     EventLoop loop;
     ThreadPool pool(4);
-    SimpleConnectionManager conn_manager;
+    ConnectionManager conn_manager;
 
     int epfd = loop.getEpollFd();
     epoll_event ev;

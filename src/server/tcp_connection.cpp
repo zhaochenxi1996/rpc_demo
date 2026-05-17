@@ -64,6 +64,97 @@ void TcpConnection::handleRead() {
     });
 }
 
+// 新增：写缓冲区
+void TcpConnection::writeToBuffer(const char* data, size_t len) {
+    std::vector<char> buffer(data, data + len);
+    write_buffer_.push(std::move(buffer));
+}
+
+// 新增：启用写事件（注册 EPOLLOUT）
+void TcpConnection::enableWriting() {
+    if (writing_) return;
+    writing_ = true;
+    loop_->updateConnection(this, EPOLL_CTL_MOD, WRITE_EVENT);  
+    // 需要修改 EventLoop::updateConnection 支持事件类型
+}
+
+// 新增：禁用写事件
+void TcpConnection::disableWriting() {
+    if (!writing_) return;
+    writing_ = false;
+    loop_->updateConnection(this, EPOLL_CTL_MOD, READ_EVENT);
+}
+
+// 核心：非阻塞 send
+void TcpConnection::send(const char* data, size_t len) {
+    // 1. 先尝试直接发送
+    size_t sent = 0;
+    if (write_buffer_.empty()) {  // 如果写缓冲区为空，直接写
+        ssize_t n = write(fd_, data, len);
+        if (n == -1) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                handleClose();
+                return;
+            }
+            // 缓冲区满，需要加入写队列
+            sent = 0;
+        } else if (n >= 0) {
+            sent = n;
+            if (sent == len) {
+                // 全部发送完成，不需要加入队列
+                return;
+            }
+        }
+    }
+    
+    // 2. 没发完或缓冲区满，剩余数据加入写队列
+    if (sent < len) {
+        writeToBuffer(data + sent, len - sent);
+    }
+    
+    // 3. 启用 EPOLLOUT 事件，等待可写
+    enableWriting();
+}
+
+// 新增：handleWrite 实现
+void TcpConnection::handleWrite() {
+    if (write_buffer_.empty()) {
+        // 没有待写数据，禁用写事件
+        disableWriting();
+        return;
+    }
+    
+    // 循环发送队列中的数据
+    while (!write_buffer_.empty()) {
+        std::vector<char>& buffer = write_buffer_.front();
+        ssize_t n = write(fd_, buffer.data(), buffer.size());
+        
+        if (n == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // 缓冲区又满了，下次继续
+                return;
+            }
+            // 出错了
+            handleClose();
+            return;
+        }
+        
+        if (n < buffer.size()) {
+            // 发送了一部分，没发完，保留剩余部分
+            std::vector<char> remaining(buffer.begin() + n, buffer.end());
+            write_buffer_.pop();
+            write_buffer_.push(std::move(remaining));
+            return;
+        }
+        
+        // 这个包发完了
+        write_buffer_.pop();
+    }
+    
+    // 所有数据都发完了，禁用写事件
+    disableWriting();
+}
+
 void TcpConnection::handleClose() {
     if (closed_) return;
     closed_ = true;
@@ -71,23 +162,6 @@ void TcpConnection::handleClose() {
     closeConnection();
 }
 
-void TcpConnection::send(const char* data, size_t len) {
-    // 简化版：同步发送，阻塞式。实际应加入写缓冲 + epollout
-    size_t sent = 0;
-    while (sent < len) {
-        ssize_t n = write(fd_, data + sent, len - sent);
-        if (n == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // 这里应注册 EPOLLOUT 等待可写
-                // 作业：完善非阻塞发送
-                return;
-            }
-            handleClose();
-            return;
-        }
-        sent += n;
-    }
-}
 
 void TcpConnection::closeConnection() {
     if (fd_ != -1) {
@@ -95,8 +169,5 @@ void TcpConnection::closeConnection() {
         fd_ = -1;
     }
 }
-
-// handleWrite 空实现，留作业
-void TcpConnection::handleWrite() {}
 
 } // namespace server
